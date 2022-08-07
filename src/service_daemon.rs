@@ -297,6 +297,22 @@ impl ServiceDaemon {
             }
             zc.increase_counter(Counter::CacheRefreshQuery, query_count);
 
+            // Send SRV queries for pending instances_to_resolve
+            let now = current_time_millis();
+            for (ty_domain, info) in zc.instances_to_resolve.iter() {
+                if info.get_hostname().len() > 0 {
+                    continue;
+                }
+                if let Some(retry_after) = zc.pending_srv_queries.get(ty_domain) {
+                    if &now < retry_after {
+                        continue;
+                    }
+                }
+                zc.pending_srv_queries.insert(ty_domain.clone(), now + 10000);
+                debug!("sending SRV query for {}", &ty_domain);
+                zc.send_query(&ty_domain.clone(), TYPE_SRV);
+            }
+
             // check and evict expired records in our cache
             let now = current_time_millis();
             let map = zc.queriers.clone();
@@ -488,6 +504,9 @@ struct Zeroconf {
     /// Active queriers interested instances
     instances_to_resolve: HashMap<String, ServiceInfo>,
 
+    /// Active queriers interested instances
+    pending_srv_queries: HashMap<String, u64>,
+
     /// All repeating transmissions.
     retransmissions: Vec<ReRun>,
 
@@ -530,6 +549,7 @@ impl Zeroconf {
             cache: DnsCache::new(),
             queriers: HashMap::new(),
             instances_to_resolve: HashMap::new(),
+            pending_srv_queries: HashMap::new(),
             retransmissions: Vec::new(),
             counters: HashMap::new(),
             poller,
@@ -997,6 +1017,7 @@ impl Zeroconf {
                     continue;
                 }
             };
+            self.pending_srv_queries.remove(instance);
             fn s(listener: &Sender<ServiceEvent>, info: ServiceInfo) {
                 match listener.send(ServiceEvent::ServiceResolved(info)) {
                     Ok(()) => debug!("sent service info successfully"),
