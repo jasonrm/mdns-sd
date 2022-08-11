@@ -300,17 +300,16 @@ impl ServiceDaemon {
             // Send ANY queries for pending instances_to_resolve
             let now = current_time_millis();
             for (ty_domain, info) in zc.instances_to_resolve.iter() {
-                if info.get_hostname().len() > 0 {
-                    continue;
-                }
                 if let Some(retry_after) = zc.pending_any_queries.get(ty_domain) {
                     if now < *retry_after {
                         continue;
                     }
                 }
+                if info.get_properties().len() == 0 || info.get_addresses().len() == 0 {
+                    debug!("sending TYPE_ANY query for {}", &ty_domain);
+                    zc.send_query(&ty_domain.clone(), TYPE_ANY);
+                }
                 zc.pending_any_queries.insert(ty_domain.clone(), now + 15000);
-                debug!("sending ANY query for {}", &ty_domain);
-                zc.send_query(&ty_domain.clone(), TYPE_ANY);
             }
 
             // check and evict expired records in our cache
